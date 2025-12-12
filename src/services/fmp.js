@@ -26,10 +26,10 @@ async function fetchFMP(endpoint, params = {}) {
 
 export const fmpService = {
   getHistoricalPrice: (symbol) => fetchFMP(`/historical-price-full/${symbol}`),
-  getIncomeStatement: (symbol) => fetchFMP(`/income-statement/${symbol}`, { period: 'quarter', limit: 40 }),
-  getBalanceSheet: (symbol) => fetchFMP(`/balance-sheet-statement/${symbol}`, { period: 'quarter', limit: 40 }),
-  getCashFlow: (symbol) => fetchFMP(`/cash-flow-statement/${symbol}`, { period: 'quarter', limit: 40 }),
-  getKeyMetrics: (symbol) => fetchFMP(`/key-metrics/${symbol}`, { period: 'quarter', limit: 40 }),
-  getRatios: (symbol) => fetchFMP(`/ratios/${symbol}`, { period: 'quarter', limit: 40 }),
+  getIncomeStatement: (symbol) => fetchFMP(`/income-statement/${symbol}`, { period: 'quarter', limit: 80 }),
+  getBalanceSheet: (symbol) => fetchFMP(`/balance-sheet-statement/${symbol}`, { period: 'quarter', limit: 80 }),
+  getCashFlow: (symbol) => fetchFMP(`/cash-flow-statement/${symbol}`, { period: 'quarter', limit: 80 }),
+  getKeyMetrics: (symbol) => fetchFMP(`/key-metrics/${symbol}`, { period: 'quarter', limit: 80 }),
+  getRatios: (symbol) => fetchFMP(`/ratios/${symbol}`, { period: 'quarter', limit: 80 }),
   getIntraday: (symbol) => fetchFMP(`/historical-chart/5min/${symbol}`),
 };

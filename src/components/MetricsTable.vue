@@ -5,6 +5,7 @@
         <thead>
           <tr>
             <th class="sticky-col">Metrics</th>
+            <th class="trend-header">Trend</th>
             <th v-for="period in periods" :key="period">
               {{ period }}
             </th>
@@ -13,18 +14,31 @@
         <tbody>
           <template v-for="group in groups" :key="group.name">
             <tr class="group-header" @click="toggleGroup(group.name)">
-              <td class="sticky-col">
+              <td class="sticky-col" :style="{ zIndex: 30 }">
                 <span :class="['arrow', { down: !collapsed[group.name] }]">▶</span>
                 {{ group.name }}
               </td>
-              <td :colspan="periods.length"></td>
+              <!-- colspan + 1 for Trend column -->
+              <td :colspan="periods.length + 1"></td>
             </tr>
             <template v-if="!collapsed[group.name]">
               <tr v-for="row in group.rows" :key="row.label">
                 <td class="sticky-col row-label">
-                  <input type="checkbox" disabled /> <!-- Placeholder for design matching -->
-                  <span class="q-icon">?</span> <!-- Placeholder -->
                   {{ row.label }}
+                </td>
+                <td 
+                  class="trend-cell" 
+                  :class="{ selected: row.label === selectedMetricKey }"
+                  @click="onTrendClick(row)"
+                >
+                  <svg width="60" height="20" viewBox="0 0 60 20">
+                    <path 
+                      :d="getSparklinePath(row.values)" 
+                      :stroke="getSparklineColor(row.values)"
+                      fill="none"
+                      stroke-width="1.5"
+                    />
+                  </svg>
                 </td>
                 <td v-for="(val, idx) in row.values" :key="idx">
                   {{ formatValue(val, row.format) }}
@@ -47,8 +61,11 @@ const props = defineProps({
   cash: { type: Array, default: () => [] },
   metrics: { type: Array, default: () => [] },
   ratios: { type: Array, default: () => [] },
-  ttmMode: { type: Boolean, default: false }
+  ttmMode: { type: Boolean, default: false },
+  selectedMetricKey: { type: String, default: null }
 });
+
+const emit = defineEmits(['select-metric']);
 
 const collapsed = ref({});
 
@@ -364,6 +381,66 @@ watch(groups, (newGroups) => {
   });
 }, { immediate: true });
 
+// Sparkline & Interaction
+const getSparklineData = (values) => {
+  // values are Newest -> Oldest (matching table columns)
+  // Chart needs Oldest -> Newest
+  return values
+    .map(v => (typeof v === 'number' ? v : null))
+    .filter(v => v !== null)
+    .reverse();
+};
+
+const getSparklinePath = (rowValues) => {
+  const values = getSparklineData(rowValues);
+  if (values.length < 2) return '';
+  
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  
+  const width = 60;
+  const height = 20;
+  const margin = 2;
+  
+  if (range === 0) return `M 0,${height/2} L ${width},${height/2}`;
+  
+  const points = values.map((val, idx) => {
+    const x = (idx / (values.length - 1)) * width;
+    const normalized = (val - min) / range;
+    const y = height - margin - (normalized * (height - 2*margin));
+    return `${x},${y}`;
+  });
+  
+  return `M ${points.join(' L ')}`;
+};
+
+const getSparklineColor = (rowValues) => {
+  const values = getSparklineData(rowValues);
+  if (values.length < 2) return '#8b949e';
+  const start = values[0]; // oldest
+  const end = values[values.length - 1]; // newest
+  return end >= start ? '#2ea043' : '#da3633';
+};
+
+const onTrendClick = (row) => {
+  // Construct full history for chart
+  // periods is Newest -> Oldest
+  // row.values is Newest -> Oldest
+  const history = periods.value.map((p, i) => ({
+    period: p,
+    value: row.values[i]
+  })).filter(d => typeof d.value === 'number').reverse(); // Oldest -> Newest
+
+  emit('select-metric', {
+    key: row.label, // Metrics use Label as unique ID typically
+    name: row.label,
+    data: history,
+    format: row.format
+  });
+};
+
+
 </script>
 
 <style scoped>
@@ -420,20 +497,42 @@ th.sticky-col {
 .row-label {
   padding-left: 2rem;
   color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: block; /* Remove flex gap if we removed icons */
 }
-.q-icon {
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    border: 1px solid var(--text-secondary);
-    font-size: 10px;
-    color: var(--text-secondary);
-    cursor: help;
+
+/* Trend Column Styles (Shared concept with FinancialTable) */
+.trend-header {
+  position: sticky;
+  left: 250px; /* Width of metric label col */
+  z-index: 20; /* Same as sticky headers */
+  background: var(--card-bg);
+  text-align: center;
+  min-width: 80px;
+  border-right: 1px solid var(--border-color); /* Separator */
+}
+
+.trend-cell {
+  position: sticky;
+  left: 250px;
+  z-index: 10;
+  background: var(--card-bg);
+  text-align: center;
+  padding: 0 10px;
+  cursor: pointer;
+  border-right: 1px solid var(--border-color);
+  border-top: 2px solid transparent; /* Maintain height balance */
+  border-bottom: 2px solid transparent; 
+  /* We use box-shadow or internal border for selection to avoid layout shift? 
+     Or just standard border logic if box-sizing border-box. */
+}
+
+.trend-cell:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.trend-cell.selected {
+  /* Highlight */
+  box-shadow: inset 0 0 0 2px var(--accent-color);
+  background-color: rgba(88, 166, 255, 0.1);
 }
 </style>

@@ -17,7 +17,12 @@
     <main>
       <!-- Top Part: Graph -->
       <section class="top-module">
-        <StockChart :symbol="symbol" />
+        <StockChart 
+          :symbol="symbol" 
+          :metric-data="selectedMetric ? selectedMetric.data : null"
+          :metric-name="selectedMetric ? selectedMetric.name : null"
+          @close-metric="selectedMetric = null"
+        />
       </section>
 
       <!-- Bottom Part: Detailed Data -->
@@ -60,6 +65,8 @@
             :metrics="financialData.metrics"
             :ratios="financialData.ratios"
             :ttm-mode="viewMode === 'TTM'"
+            :selected-metric-key="selectedMetric ? selectedMetric.key : null"
+            @select-metric="handleMetricSelect"
           />
           
           <FinancialTable 
@@ -68,6 +75,8 @@
             :type="activeTab" 
             :ttm-mode="viewMode === 'TTM'"
             :groups="activeTab === 'income' ? incomeStatementGroups : (activeTab === 'balance' ? balanceSheetGroups : (activeTab === 'cash' ? cashFlowGroups : null))"
+            :selected-metric-key="selectedMetric ? selectedMetric.key : null"
+            @select-metric="handleMetricSelect"
           />
         </div>
       </section>
@@ -296,6 +305,18 @@ const errorFinancials = ref(null);
 const currentData = computed(() => {
   return financialData.value[activeTab.value];
 });
+
+const selectedMetric = ref(null);
+
+const handleMetricSelect = (metric) => {
+  // If clicking same metric, deselect? Or just toggle?
+  // User didn't specify, but toggle is good UX.
+  if (selectedMetric.value && selectedMetric.value.key === metric.key) {
+    selectedMetric.value = null;
+  } else {
+    selectedMetric.value = metric;
+  }
+};
 
 const updateSymbol = () => {
   if (searchInput.value && searchInput.value.toUpperCase() !== symbol.value) {

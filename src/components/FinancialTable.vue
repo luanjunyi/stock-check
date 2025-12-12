@@ -4,6 +4,7 @@
       <thead>
         <tr>
           <th>Year-Period</th>
+          <th class="trend-header">Trend</th>
           <th v-for="(item, index) in displayData" :key="index">
             {{ formatDateHeader(item) }}
           </th>
@@ -13,10 +14,24 @@
         <template v-if="groups">
           <template v-for="group in groups" :key="group.name">
             <tr class="group-header">
-              <td :colspan="displayData.length + 1">{{ group.name }}</td>
+              <td :colspan="displayData.length + 2">{{ group.name }}</td>
             </tr>
             <tr v-for="row in group.rows" :key="row.label">
               <td class="row-label">{{ row.label }}</td>
+              <td 
+                class="trend-cell" 
+                :class="{ selected: (row.key || row.label) === selectedMetricKey }"
+                @click="onTrendClick(row)"
+              >
+                <svg width="60" height="20" viewBox="0 0 60 20">
+                  <path 
+                    :d="getSparklinePath(displayData, row)" 
+                    :stroke="getSparklineColor(displayData, row)"
+                    fill="none"
+                    stroke-width="1.5"
+                  />
+                </svg>
+              </td>
               <td v-for="(item, index) in displayData" :key="index">
                 {{ formatValue(getValue(item, row), row.format) }}
               </td>
@@ -26,6 +41,20 @@
         <template v-else>
           <tr v-for="key in keys" :key="key">
             <td>{{ formatKey(key) }}</td>
+            <td 
+              class="trend-cell" 
+              :class="{ selected: key === selectedMetricKey }"
+              @click="onTrendClick({ key })"
+            >
+               <svg width="60" height="20" viewBox="0 0 60 20">
+                  <path 
+                    :d="getSparklinePath(displayData, { key })" 
+                    :stroke="getSparklineColor(displayData, { key })"
+                    fill="none"
+                    stroke-width="1.5"
+                  />
+               </svg>
+            </td>
             <td v-for="(item, index) in displayData" :key="index">
               {{ formatValue(item[key]) }}
             </td>
@@ -56,8 +85,14 @@ const props = defineProps({
   groups: {
     type: Array,
     default: null
+  },
+  selectedMetricKey: {
+    type: String,
+    default: null
   }
 });
+
+const emit = defineEmits(['select-metric']);
 
 // Define which keys to show for each type to avoid showing raw API noise.
 const excludedKeys = ['date', 'symbol', 'period', 'calendarYear', 'cik', 'fillingDate', 'acceptedDate', 'link', 'finalLink'];
@@ -194,6 +229,79 @@ const formatDateHeader = (item) => {
   
   return `${year} Q${quarter}`;
 };
+
+// Sparkline Logic
+const getSparklineData = (dataList, row) => {
+  // Extract values for the row
+  const values = dataList.map(item => getValue(item, row));
+  
+  // Data list is typically Newest -> Oldest (e.g. 2024, 2023...)
+  // We want trend Oldest -> Newest for the chart
+  // Filter out non-numbers first? Or treat as 0? Usually just filter valid numbers
+  const validValues = values.filter(v => typeof v === 'number').reverse();
+  return validValues;
+};
+
+const getSparklinePath = (dataList, row) => {
+  const values = getSparklineData(dataList, row);
+  if (values.length < 2) return '';
+  
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  
+  // Dimensions 60x20
+  const width = 60;
+  const height = 20;
+  const margin = 2; // top/bottom margin
+  
+  // If flat line
+  if (range === 0) {
+    return `M 0,${height/2} L ${width},${height/2}`;
+  }
+  
+  const points = values.map((val, idx) => {
+    const x = (idx / (values.length - 1)) * width;
+    // Invert Y because SVG 0 is top
+    // Normalize val between 0 and 1
+    const normalized = (val - min) / range; 
+    const y = height - margin - (normalized * (height - 2*margin)); 
+    return `${x},${y}`;
+  });
+  
+  return `M ${points.join(' L ')}`;
+};
+
+const getSparklineColor = (dataList, row) => {
+  const values = getSparklineData(dataList, row);
+  if (values.length < 2) return '#8b949e'; // grey
+  
+  const start = values[0];
+  const end = values[values.length - 1];
+  
+  return end >= start ? '#2ea043' : '#da3633'; // Green or Red
+};
+
+const onTrendClick = (row) => {
+  // We need to gather the full historical data for this row to pass to the chart
+  // The chart expects: [{ date/period: '...', value: 123 }, ...] (Oldest -> Newest)
+  
+  // displayData is Newest -> Oldest
+  const history = displayData.value.map(item => ({
+    date: item.date, // keep original date for sorting/key
+    period: formatDateHeader(item), // formatted label
+    value: getValue(item, row)
+  })).filter(d => typeof d.value === 'number').reverse();
+
+  emit('select-metric', {
+    key: row.key || row.label, // unique id
+    name: row.label || formatKey(row.key),
+    data: history,
+    format: row.format
+  });
+};
+
+
 </script>
 
 <style scoped>
@@ -204,6 +312,7 @@ const formatDateHeader = (item) => {
   text-align: center;
   padding: 2rem;
   color: var(--text-secondary);
+  background: var(--card-bg); /* Ensure plain text has bg if sticky interferes */
 }
 
 .group-header {
@@ -221,7 +330,7 @@ const formatDateHeader = (item) => {
   /* Make sticky */
   position: sticky;
   left: 0;
-  z-index: 25; /* Above row labels */
+  z-index: 30; /* Above row labels and trend */
   background-color: var(--card-bg);
 }
 
@@ -232,8 +341,40 @@ const formatDateHeader = (item) => {
   /* Make sticky */
   position: sticky;
   left: 0;
-  z-index: 20; /* Above normal cells */
+  z-index: 25; /* Above trend column */
   background-color: var(--card-bg);
   border-right: 1px solid var(--border-color);
+}
+
+.trend-header {
+  position: sticky;
+  left: 180px; /* Estimate width of first col? No, row-label width varies */
+  /* Actually, to stick the 2nd column, we need to know the width of the 1st. */
+  /* This is hard without fixed widths. But maybe we don't sticky the Trend column? */
+  /* User didn't explicitly ask for Trend to be sticky, but it's part of the "header" usually. */
+  /* Let's Try keep it simple first: Not sticky, or give fixed width to row-label? */
+  /* Given the screenshot, the "Trend" is part of the "metadata" of the row. */
+  /* Let's try to make row-label AND trend sticky if possible? */
+  /* For now, let's just make it a normal column. If user complains we fix it. */
+  text-align: center;
+  width: 80px; /* min width */
+}
+
+.trend-cell {
+  text-align: center;
+  padding: 0 10px;
+  cursor: pointer;
+  border: 2px solid transparent; /* Reserve space */
+  border-radius: 4px;
+  transition: border-color 0.2s;
+}
+
+.trend-cell:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.trend-cell.selected {
+  border-color: var(--accent-color);
+  background-color: rgba(88, 166, 255, 0.1);
 }
 </style>

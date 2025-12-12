@@ -1,8 +1,9 @@
 <template>
   <div class="card chart-container">
     <div class="header-row">
-      <h2>Price History ({{ symbol }})</h2>
-      <div class="controls">
+      <h2>{{ metricName ? metricName : 'Price History (' + symbol + ')' }}</h2>
+      <button v-if="metricName" @click="$emit('close-metric')" class="close-metric-btn">✕ Close Metric</button>
+      <div v-else class="controls">
         <button 
           v-for="p in periods" 
           :key="p" 
@@ -93,8 +94,18 @@ const props = defineProps({
   symbol: {
     type: String,
     required: true
+  },
+  metricData: {
+    type: Array, // [{ date, period, value }, ...]
+    default: null
+  },
+  metricName: {
+    type: String,
+    default: null
   }
 });
+
+const emit = defineEmits(['close-metric']);
 
 const periods = ['1D', '1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', 'Max'];
 const selectedPeriod = ref('1Y');
@@ -111,14 +122,61 @@ const rangeStart = ref(0);
 const rangeEnd = ref(100);
 const totalPoints = ref(100);
 
+const isMetricMode = computed(() => !!props.metricData);
+
+// Watch for metric mode to reset slider
+watch(() => props.metricData, (newVal) => {
+  if (newVal && newVal.length > 0) {
+    // Reset slider to full range of metric data
+    totalPoints.value = newVal.length - 1;
+    rangeStart.value = 0;
+    rangeEnd.value = newVal.length - 1;
+  } else if (!newVal && fullHistoricalData.value.length > 0) {
+     // Revert to history points (might need to restore specific history period?)
+     // Just defaulting to '1Y' typically happens in fetchData
+     selectPeriod(selectedPeriod.value);
+  }
+});
+
 const chartData = computed(() => {
   let data = [];
   
+  if (isMetricMode.value) {
+     // Metric Mode
+     const start = Math.min(rangeStart.value, rangeEnd.value);
+     const end = Math.max(rangeStart.value, rangeEnd.value);
+     // Slice metric data
+     data = props.metricData.slice(start, end + 1);
+     
+     return {
+       labels: data.map(d => d.period), // Use period label (2023 Q4)
+       datasets: [
+         {
+           type: 'line',
+           label: props.metricName,
+           yAxisID: 'y',
+           backgroundColor: (ctx) => {
+              const canvas = ctx.chart.ctx;
+              const gradient = canvas.createLinearGradient(0, 0, 0, 400);
+              gradient.addColorStop(0, 'rgba(46, 160, 67, 0.5)'); // Greenish for metrics
+              gradient.addColorStop(1, 'rgba(46, 160, 67, 0)');
+              return gradient;
+           },
+           borderColor: '#2ea043',
+           pointRadius: 4,
+           pointHoverRadius: 6,
+           data: data.map(d => d.value),
+           fill: true,
+           tension: 0.1
+         }
+       ]
+     };
+  }
+  
+  // Existing Logic
   if (selectedPeriod.value === '1D') {
     data = intradayData.value;
   } else {
-    // Slice full history based on slider range
-    // Ensure range is valid
     const start = Math.min(rangeStart.value, rangeEnd.value);
     const end = Math.max(rangeStart.value, rangeEnd.value);
     data = fullHistoricalData.value.slice(start, end + 1);
@@ -167,7 +225,7 @@ const chartOptions = computed(() => ({
     intersect: false,
   },
   plugins: {
-    legend: { display: false },
+    legend: { display: isMetricMode.value }, // Show legend for metric?
     tooltip: {
       mode: 'index',
       intersect: false,
@@ -191,10 +249,12 @@ const chartOptions = computed(() => ({
         maxRotation: 0,
         autoSkip: true,
         callback: function(val, index) {
-          // 'this' is the axis instance. 'val' is the index for Category scale.
-          // access label via: this.getLabelForValue(val)
           const label = this.getLabelForValue(val);
           if (!label) return '';
+          
+          if (isMetricMode.value) {
+            return label; // Show period directly
+          }
 
           const date = new Date(label);
           const period = selectedPeriod.value;
@@ -224,17 +284,26 @@ const chartOptions = computed(() => ({
       display: true,
       position: 'left',
       grid: { color: '#30363d' },
-      ticks: { color: '#8b949e' }
+      ticks: { 
+        color: '#8b949e',
+        callback: function(value) {
+            // Check for large numbers and format
+            if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + 'B';
+            if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(1) + 'M';
+            if (Math.abs(value) >= 1e3) return (value / 1e3).toFixed(1) + 'K';
+            return value;
+        }
+      }
     },
     y1: {
       type: 'linear',
-      display: true,
+      display: !isMetricMode.value, // Hide volume axis in metric mode
       position: 'right',
       grid: {
-        drawOnChartArea: false, // only want the grid lines for one axis to show up
+        drawOnChartArea: false, 
       },
       ticks: {
-        color: '#484f58', // Dimmer implementation for secondary axis
+        color: '#484f58', 
         callback: function(value) {
             if (value >= 1e9) return (value / 1e9).toFixed(1) + 'B';
             if (value >= 1e6) return (value / 1e6).toFixed(1) + 'M';
@@ -242,7 +311,6 @@ const chartOptions = computed(() => ({
             return value;
         }
       },
-      // Optional: Suggest max to push bars down? Use min: 0 default.
       beginAtZero: true
     }
   }
@@ -262,7 +330,8 @@ const sliderWidth = computed(() => {
 });
 
 const sliderMarkers = computed(() => {
-  if (fullHistoricalData.value.length === 0) return [];
+  const source = isMetricMode.value ? props.metricData : fullHistoricalData.value;
+  if (!source || source.length === 0) return [];
   
   const markers = [];
   const count = 6; // Number of markers
@@ -270,12 +339,20 @@ const sliderMarkers = computed(() => {
   
   for (let i = 0; i < count; i++) {
     const idx = Math.min(i * step, totalPoints.value - 1);
-    const item = fullHistoricalData.value[idx];
-    if (item && item.date) {
-      const date = new Date(item.date);
+    const item = source[idx];
+    
+    if (item) {
+      let label = '';
+      if (isMetricMode.value && item.period) {
+        // period is "YYYY QX"
+        label = item.period.split(' ')[0];
+      } else if (item.date) {
+        label = new Date(item.date).getFullYear();
+      }
+      
       markers.push({
         left: (idx / totalPoints.value) * 100,
-        label: date.getFullYear()
+        label: label
       });
     }
   }
@@ -391,6 +468,19 @@ watch(() => props.symbol, () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+}
+
+.close-metric-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.close-metric-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text-primary);
 }
 
 .controls {
