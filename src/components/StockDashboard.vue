@@ -40,7 +40,7 @@
           </div>
           
           <div class="view-toggles">
-             <div class="toggle-group">
+             <div class="toggle-group" v-if="activeTab !== 'math'">
                <button 
                  :class="{ active: viewMode === 'Q' }" 
                  @click="viewMode = 'Q'"
@@ -54,7 +54,9 @@
         </div>
 
         <div class="tab-content">
-          <div v-if="loadingFinancials" class="loading">Loading Financials...</div>
+          <MathTab v-if="activeTab === 'math'" />
+
+          <div v-else-if="loadingFinancials" class="loading">Loading Financials...</div>
           <div v-else-if="errorFinancials" class="error">{{ errorFinancials }}</div>
           
           <MetricsTable 
@@ -90,6 +92,7 @@ import { useRoute, useRouter } from 'vue-router';
 import StockChart from './StockChart.vue';
 import FinancialTable from './FinancialTable.vue';
 import MetricsTable from './MetricsTable.vue';
+import MathTab from './MathTab.vue';
 import { fmpService } from '../services/fmp';
 
 const route = useRoute();
@@ -119,7 +122,8 @@ const tabs = [
   { id: 'income', label: 'Income Statement' },
   { id: 'balance', label: 'Balance Sheet' },
   { id: 'cash', label: 'Cash Flow' },
-  { id: 'metrics', label: 'Metrics' }
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'math', label: 'Math' }
 ];
 
 const financialData = ref({
