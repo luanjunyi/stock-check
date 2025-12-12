@@ -138,6 +138,21 @@ watch(() => props.metricData, (newVal) => {
   }
 });
 
+const parsePeriodToYear = (periodStr) => {
+  // Expected "YYYY QX"
+  if (!periodStr) return 0;
+  const parts = periodStr.split(' ');
+  if (parts.length >= 2) {
+    const year = parseInt(parts[0]);
+    const qStr = parts[1].replace('Q', ''); // Handle 'Q1' or just '1'
+    const q = parseInt(qStr);
+    return year + (q - 1) / 4;
+  }
+  // Fallback if just Year?
+  const year = parseInt(periodStr);
+  return isNaN(year) ? 0 : year;
+};
+
 const chartData = computed(() => {
   let data = [];
   
@@ -148,9 +163,8 @@ const chartData = computed(() => {
      // Slice metric data
      data = props.metricData.slice(start, end + 1);
      
-     return {
-       labels: data.map(d => d.period), // Use period label (2023 Q4)
-       datasets: [
+     // 1. Prepare Base Dataset
+     const datasets = [
          {
            type: 'line',
            label: props.metricName,
@@ -167,13 +181,81 @@ const chartData = computed(() => {
            pointHoverRadius: 6,
            data: data.map(d => d.value),
            fill: true,
-           tension: 0.1
+           tension: 0.1,
+           order: 2
          }
-       ]
+     ];
+
+     // 2. Exponential Fit (CAGR)
+     // Only if all values > 0 (Log requirement)
+     const validForLog = data.every(d => d.value > 0);
+     if (validForLog && data.length >= 2) {
+        // Prepare (t, ln(v)) points
+        const points = data.map(d => ({
+            t: parsePeriodToYear(d.period),
+            v: Math.log(d.value)
+        }));
+
+        // Linear Regression: ln(v) = m*t + c
+        const n = points.length;
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        
+        for (const p of points) {
+            sumX += p.t;
+            sumY += p.v;
+            sumXY += p.t * p.v;
+            sumXX += p.t * p.t;
+        }
+
+        const denominator = (n * sumXX - sumX * sumX);
+        if (denominator !== 0) {
+            const slope = (n * sumXY - sumX * sumY) / denominator;
+            const intercept = (sumY - slope * sumX) / n;
+            
+            // Calculate R-Squared
+            // R2 = 1 - (SSres / SStot)
+            // SSres = Sum((y - y_pred)^2)
+            // SStot = Sum((y - y_mean)^2)
+            const yMean = sumY / n;
+            let ssRes = 0;
+            let ssTot = 0;
+
+            const fittedData = points.map(p => {
+                const predictedLogY = slope * p.t + intercept;
+                ssRes += Math.pow(p.v - predictedLogY, 2);
+                ssTot += Math.pow(p.v - yMean, 2);
+                return Math.exp(predictedLogY);
+            });
+
+            const rSquared = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
+            
+            // Calculate CAGR: (exp(slope) - 1)
+            const cagr = Math.exp(slope) - 1;
+            const cagrPct = (cagr * 100).toFixed(2) + '%';
+            
+            datasets.push({
+                type: 'line',
+                label: `Trend (CAGR: ${cagrPct}, R²: ${rSquared.toFixed(2)})`,
+                yAxisID: 'y',
+                borderColor: '#ffffff', // White
+                borderDash: [5, 5],
+                borderWidth: 2,
+                pointRadius: 0,
+                data: fittedData,
+                fill: false,
+                tension: 0.4, // smooth curve
+                order: 1
+            });
+        }
+     }
+     
+     return {
+       labels: data.map(d => d.period), 
+       datasets: datasets
      };
   }
   
-  // Existing Logic
+  // Existing Logic for Price History
   if (selectedPeriod.value === '1D') {
     data = intradayData.value;
   } else {
