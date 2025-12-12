@@ -67,8 +67,6 @@ import {
   LinearScale,
   PointElement,
   LineElement,
-  BarElement,
-  BarController, // Import BarController
   Title,
   Tooltip,
   Legend,
@@ -82,8 +80,6 @@ ChartJS.register(
   LinearScale,
   PointElement,
   LineElement,
-  BarElement,
-  BarController, // Register BarController
   Title,
   Tooltip,
   Legend,
@@ -285,15 +281,6 @@ const chartData = computed(() => {
         fill: true,
         tension: 0.1,
         order: 1
-      },
-      {
-        type: 'bar',
-        label: 'Volume',
-        yAxisID: 'y1',
-        backgroundColor: 'rgba(48, 54, 61, 0.8)', // Darker bar color
-        data: data.map(d => d.volume),
-        barPercentage: 0.5,
-        order: 2
       }
     ]
   };
@@ -377,24 +364,7 @@ const chartOptions = computed(() => ({
         }
       }
     },
-    y1: {
-      type: 'linear',
-      display: !isMetricMode.value, // Hide volume axis in metric mode
-      position: 'right',
-      grid: {
-        drawOnChartArea: false, 
-      },
-      ticks: {
-        color: '#484f58', 
-        callback: function(value) {
-            if (value >= 1e9) return (value / 1e9).toFixed(1) + 'B';
-            if (value >= 1e6) return (value / 1e6).toFixed(1) + 'M';
-            if (value >= 1e3) return (value / 1e3).toFixed(1) + 'K';
-            return value;
-        }
-      },
-      beginAtZero: true
-    }
+
   }
 }));
 
