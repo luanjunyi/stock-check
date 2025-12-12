@@ -99,3 +99,13 @@ td:first-child {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+@media (max-width: 768px) {
+  #app {
+    padding: 1rem;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+}

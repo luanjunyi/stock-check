@@ -377,4 +377,37 @@ const onTrendClick = (row) => {
   border-color: var(--accent-color);
   background-color: rgba(88, 166, 255, 0.1);
 }
+
+@media (max-width: 768px) {
+  .row-label {
+    min-width: 140px;
+    width: 140px; /* Force width */
+    left: 0;
+    white-space: normal; /* Allow wrapping */
+    padding-left: 0.5rem; /* Less padding */
+    font-size: 0.8rem;
+    line-height: 1.2;
+  }
+  
+  /* Update sticky position for Trend Header */
+  .trend-header { 
+     left: 140px; 
+     min-width: 60px;
+     width: 60px;
+  }
+  
+  /* Make Trend Cell sticky on mobile to match header behavior if desired, 
+     or just ensure it aligns if we made row-label fixed width.
+     For now, let's keep it non-sticky (default) but ensure widths align 
+     so it flows correctly after the sticky first col. 
+     Use standard table layout. */
+     
+  .trend-cell {
+    padding: 0 5px;
+  }
+  
+  .trend-cell svg {
+    width: 50px;
+  }
+}
 </style>

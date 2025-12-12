@@ -680,4 +680,29 @@ watch(() => props.symbol, () => {
   font-size: 10px;
   color: #8b949e;
 }
+
+@media (max-width: 768px) {
+  .chart-container {
+    height: 450px; /* Slightly shorter on mobile */
+  }
+
+  .header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .controls {
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    /* Hide scrollbar for cleaner look */
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  
+  .controls::-webkit-scrollbar {
+    display: none;
+  }
+}
 </style>

@@ -492,4 +492,47 @@ header {
 .error {
   color: var(--danger-color);
 }
+
+@media (max-width: 768px) {
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .search-bar {
+    width: 100%;
+  }
+
+  .search-bar input {
+    width: 100%;
+  }
+
+  .tabs-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+    overflow-x: auto;
+  }
+
+  .tabs {
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border-color); /* Move border here for scroll */
+    padding-bottom: 0;
+  }
+  
+  /* Hide the main border-bottom on tabs-header to avoid double border */
+  .tabs-header {
+      border-bottom: none;
+      padding-bottom: 0;
+  }
+
+  .view-toggles {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+}
 </style>

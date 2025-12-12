@@ -535,4 +535,24 @@ th.sticky-col {
   box-shadow: inset 0 0 0 2px var(--accent-color);
   background-color: rgba(88, 166, 255, 0.1);
 }
+
+@media (max-width: 768px) {
+  .sticky-col {
+    min-width: 140px;
+    width: 140px; /* Force width */
+    font-size: 0.8rem;
+    white-space: normal; /* Allow wrapping for long metric names */
+    line-height: 1.2;
+  }
+  
+  .trend-header, .trend-cell {
+    left: 140px;
+    min-width: 60px;
+    padding: 0 5px;
+  }
+  
+  .trend-cell svg {
+    width: 50px; /* Scale down sparkline */
+  }
+}
 </style>
