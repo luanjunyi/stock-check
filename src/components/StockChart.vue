@@ -109,395 +109,403 @@ const selectedPeriod = ref('1Y');
 const loading = ref(true);
 const error = ref(null);
 
-// Data Storage
-const fullHistoricalData = ref([]); // Daily data (oldest to newest)
-const intradayData = ref([]);       // 1D data (oldest to newest)
+  // Data Storage
+  const fullHistoricalData = ref([]); // Daily data (oldest to newest)
+  const intradayData = ref([]);       // 1D data (oldest to newest)
 
-// Slider State (indices)
-const rangeStart = ref(0);
-const rangeEnd = ref(100);
-const totalPoints = ref(100);
+  // Slider State (indices)
+  const rangeStart = ref(0);
+  const rangeEnd = ref(100);
+  const totalPoints = ref(100);
 
-const isMetricMode = computed(() => !!props.metricData);
+  const isMetricMode = computed(() => !!props.metricData);
 
-// Watch for metric mode to reset slider
-watch(() => props.metricData, (newVal) => {
-  if (newVal && newVal.length > 0) {
-    // Reset slider to full range of metric data
-    totalPoints.value = newVal.length - 1;
-    rangeStart.value = 0;
-    rangeEnd.value = newVal.length - 1;
-  } else if (!newVal && fullHistoricalData.value.length > 0) {
-     // Revert to history points (might need to restore specific history period?)
-     // Just defaulting to '1Y' typically happens in fetchData
-     selectPeriod(selectedPeriod.value);
-  }
-});
+  // Watch for metric mode to reset slider
+  watch(() => props.metricData, (newVal) => {
+    if (newVal && newVal.length > 0) {
+      // Reset slider to full range of metric data
+      totalPoints.value = newVal.length - 1;
+      rangeStart.value = 0;
+      rangeEnd.value = newVal.length - 1;
+    } else if (!newVal && fullHistoricalData.value.length > 0) {
+      // Revert to history points (might need to restore specific history period?)
+      // Just defaulting to '1Y' typically happens in fetchData
+      selectPeriod(selectedPeriod.value);
+    }
+  });
 
-const parsePeriodToYear = (periodStr) => {
-  // Expected "YYYY QX"
-  if (!periodStr) return 0;
-  const parts = periodStr.split(' ');
-  if (parts.length >= 2) {
-    const year = parseInt(parts[0]);
-    const qStr = parts[1].replace('Q', ''); // Handle 'Q1' or just '1'
-    const q = parseInt(qStr);
-    return year + (q - 1) / 4;
-  }
-  // Fallback if just Year?
-  const year = parseInt(periodStr);
-  return isNaN(year) ? 0 : year;
-};
-
-const chartData = computed(() => {
-  let data = [];
-  
-  if (isMetricMode.value) {
-     // Metric Mode
-     const start = Math.min(rangeStart.value, rangeEnd.value);
-     const end = Math.max(rangeStart.value, rangeEnd.value);
-     // Slice metric data
-     data = props.metricData.slice(start, end + 1);
-     
-     // 1. Prepare Base Dataset
-     const datasets = [
-         {
-           type: 'line',
-           label: props.metricName,
-           yAxisID: 'y',
-           backgroundColor: (ctx) => {
-              const canvas = ctx.chart.ctx;
-              const gradient = canvas.createLinearGradient(0, 0, 0, 400);
-              gradient.addColorStop(0, 'rgba(46, 160, 67, 0.5)'); // Greenish for metrics
-              gradient.addColorStop(1, 'rgba(46, 160, 67, 0)');
-              return gradient;
-           },
-           borderColor: '#2ea043',
-           pointRadius: 4,
-           pointHoverRadius: 6,
-           data: data.map(d => d.value),
-           fill: true,
-           tension: 0.1,
-           order: 2
-         }
-     ];
-
-     // 2. Exponential Fit (CAGR)
-     // Only if all values > 0 (Log requirement)
-     const validForLog = data.every(d => d.value > 0);
-     if (validForLog && data.length >= 2) {
-        // Prepare (t, ln(v)) points
-        const points = data.map(d => ({
-            t: parsePeriodToYear(d.period),
-            v: Math.log(d.value)
-        }));
-
-        // Linear Regression: ln(v) = m*t + c
-        const n = points.length;
-        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-        
-        for (const p of points) {
-            sumX += p.t;
-            sumY += p.v;
-            sumXY += p.t * p.v;
-            sumXX += p.t * p.t;
-        }
-
-        const denominator = (n * sumXX - sumX * sumX);
-        if (denominator !== 0) {
-            const slope = (n * sumXY - sumX * sumY) / denominator;
-            const intercept = (sumY - slope * sumX) / n;
-            
-            // Calculate R-Squared
-            // R2 = 1 - (SSres / SStot)
-            // SSres = Sum((y - y_pred)^2)
-            // SStot = Sum((y - y_mean)^2)
-            const yMean = sumY / n;
-            let ssRes = 0;
-            let ssTot = 0;
-
-            const fittedData = points.map(p => {
-                const predictedLogY = slope * p.t + intercept;
-                ssRes += Math.pow(p.v - predictedLogY, 2);
-                ssTot += Math.pow(p.v - yMean, 2);
-                return Math.exp(predictedLogY);
-            });
-
-            const rSquared = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
-            
-            // Calculate CAGR: (exp(slope) - 1)
-            const cagr = Math.exp(slope) - 1;
-            const cagrPct = (cagr * 100).toFixed(2) + '%';
-            
-            datasets.push({
-                type: 'line',
-                label: `Trend (CAGR: ${cagrPct}, R²: ${rSquared.toFixed(2)})`,
-                yAxisID: 'y',
-                borderColor: '#ffffff', // White
-                borderDash: [5, 5],
-                borderWidth: 2,
-                pointRadius: 0,
-                data: fittedData,
-                fill: false,
-                tension: 0.4, // smooth curve
-                order: 1
-            });
-        }
-     }
-     
-     return {
-       labels: data.map(d => d.period), 
-       datasets: datasets
-     };
-  }
-  
-  // Existing Logic for Price History
-  if (selectedPeriod.value === '1D') {
-    data = intradayData.value;
-  } else {
-    const start = Math.min(rangeStart.value, rangeEnd.value);
-    const end = Math.max(rangeStart.value, rangeEnd.value);
-    data = fullHistoricalData.value.slice(start, end + 1);
-  }
-
-  return {
-    labels: data.map(d => d.date.substring(0, 16)), // Date or DateTime
-    datasets: [
-      {
-        type: 'line',
-        label: props.symbol,
-        yAxisID: 'y',
-        backgroundColor: (ctx) => {
-          const canvas = ctx.chart.ctx;
-          const gradient = canvas.createLinearGradient(0, 0, 0, 400);
-          gradient.addColorStop(0, 'rgba(88, 166, 255, 0.5)');
-          gradient.addColorStop(1, 'rgba(88, 166, 255, 0)');
-          return gradient;
-        },
-        borderColor: '#58a6ff',
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        data: data.map(d => selectedPeriod.value === '1D' ? d.close : d.adjClose),
-        fill: true,
-        tension: 0.1,
-        order: 1
-      }
-    ]
+  const parsePeriodToYear = (periodStr) => {
+    // Expected "YYYY QX"
+    if (!periodStr) return 0;
+    const parts = periodStr.split(' ');
+    if (parts.length >= 2) {
+      const year = parseInt(parts[0]);
+      const qStr = parts[1].replace('Q', ''); // Handle 'Q1' or just '1'
+      const q = parseInt(qStr);
+      return year + (q - 1) / 4;
+    }
+    // Fallback if just Year?
+    const year = parseInt(periodStr);
+    return isNaN(year) ? 0 : year;
   };
-});
 
-const chartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  interaction: {
-    mode: 'index',
-    intersect: false,
-  },
-  plugins: {
-    legend: { display: isMetricMode.value }, // Show legend for metric?
-    tooltip: {
+  const chartData = computed(() => {
+    let data = [];
+    
+    if (isMetricMode.value) {
+       // Metric Mode
+       const start = Math.min(rangeStart.value, rangeEnd.value);
+       const end = Math.max(rangeStart.value, rangeEnd.value);
+       // Slice metric data
+       data = props.metricData.slice(start, end + 1);
+       
+       // 1. Prepare Base Dataset
+       const datasets = [
+           {
+             type: 'line',
+             label: props.metricName,
+             yAxisID: 'y',
+             backgroundColor: (ctx) => {
+                const canvas = ctx.chart.ctx;
+                const gradient = canvas.createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, 'rgba(46, 160, 67, 0.5)'); // Greenish for metrics
+                gradient.addColorStop(1, 'rgba(46, 160, 67, 0)');
+                return gradient;
+             },
+             borderColor: '#2ea043',
+             pointRadius: 4,
+             pointHoverRadius: 6,
+             data: data.map(d => d.value),
+             fill: true,
+             tension: 0.1,
+             order: 2
+           }
+       ];
+
+       // 2. Exponential Fit (CAGR)
+       // Only if all values > 0 (Log requirement)
+       const validForLog = data.every(d => d.value > 0);
+       if (validForLog && data.length >= 2) {
+          // Prepare (t, ln(v)) points
+          const points = data.map(d => ({
+              t: parsePeriodToYear(d.period),
+              v: Math.log(d.value)
+          }));
+
+          // Linear Regression: ln(v) = m*t + c
+          const n = points.length;
+          let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+          
+          for (const p of points) {
+              sumX += p.t;
+              sumY += p.v;
+              sumXY += p.t * p.v;
+              sumXX += p.t * p.t;
+          }
+
+          const denominator = (n * sumXX - sumX * sumX);
+          if (denominator !== 0) {
+              const slope = (n * sumXY - sumX * sumY) / denominator;
+              const intercept = (sumY - slope * sumX) / n;
+              
+              // Calculate R-Squared
+              // R2 = 1 - (SSres / SStot)
+              // SSres = Sum((y - y_pred)^2)
+              // SStot = Sum((y - y_mean)^2)
+              const yMean = sumY / n;
+              let ssRes = 0;
+              let ssTot = 0;
+
+              const fittedData = points.map(p => {
+                  const predictedLogY = slope * p.t + intercept;
+                  ssRes += Math.pow(p.v - predictedLogY, 2);
+                  ssTot += Math.pow(p.v - yMean, 2);
+                  return Math.exp(predictedLogY);
+              });
+
+              const rSquared = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
+              
+              // Calculate CAGR: (exp(slope) - 1)
+              const cagr = Math.exp(slope) - 1;
+              const cagrPct = (cagr * 100).toFixed(2) + '%';
+              
+              datasets.push({
+                  type: 'line',
+                  label: `Trend (CAGR: ${cagrPct}, R²: ${rSquared.toFixed(2)})`,
+                  yAxisID: 'y',
+                  borderColor: '#ffffff', // White
+                  borderDash: [5, 5],
+                  borderWidth: 2,
+                  pointRadius: 0,
+                  data: fittedData,
+                  fill: false,
+                  tension: 0.4, // smooth curve
+                  order: 1
+              });
+          }
+       }
+       
+       return {
+         labels: data.map(d => d.period), 
+         datasets: datasets
+       };
+    }
+    
+    // Existing Logic for Price History
+    if (selectedPeriod.value === '1D') {
+      data = intradayData.value;
+    } else {
+      const start = Math.min(rangeStart.value, rangeEnd.value);
+      const end = Math.max(rangeStart.value, rangeEnd.value);
+      data = fullHistoricalData.value.slice(start, end + 1);
+    }
+
+    return {
+      labels: data.map(d => d.date.substring(0, 16)), // Date or DateTime
+      datasets: [
+        {
+          type: 'line',
+          label: props.symbol,
+          yAxisID: 'y',
+          backgroundColor: (ctx) => {
+            const canvas = ctx.chart.ctx;
+            const gradient = canvas.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(88, 166, 255, 0.5)');
+            gradient.addColorStop(1, 'rgba(88, 166, 255, 0)');
+            return gradient;
+          },
+          borderColor: '#58a6ff',
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          data: data.map(d => selectedPeriod.value === '1D' ? d.close : d.adjClose),
+          fill: true,
+          tension: 0.1,
+          order: 1
+        }
+      ]
+    };
+  });
+
+  const chartOptions = computed(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
       mode: 'index',
       intersect: false,
-      backgroundColor: '#161b22',
-      titleColor: '#c9d1d9',
-      bodyColor: '#c9d1d9',
-      borderColor: '#30363d',
-      borderWidth: 1
-    }
-  },
-  scales: {
-    x: {
-      display: true,
-      grid: {
-        display: false,
-        drawBorder: false
+    },
+    plugins: {
+      legend: { display: isMetricMode.value }, // Show legend for metric?
+      tooltip: {
+        mode: 'index',
+        intersect: false,
+        backgroundColor: '#161b22',
+        titleColor: '#c9d1d9',
+        bodyColor: '#c9d1d9',
+        borderColor: '#30363d',
+        borderWidth: 1
+      }
+    },
+    scales: {
+      x: {
+        display: true,
+        grid: {
+          display: false,
+          drawBorder: false
+        },
+        ticks: {
+          color: '#8b949e',
+          maxTicksLimit: 8,
+          maxRotation: 0,
+          autoSkip: true,
+          callback: function(val, index) {
+            const label = this.getLabelForValue(val);
+            if (!label) return '';
+            
+            if (isMetricMode.value) {
+              return label; // Show period directly
+            }
+
+            const date = new Date(label);
+            const period = selectedPeriod.value;
+
+            if (period === '1D') {
+              // HH:MM
+              return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            
+            if (['1W', '1M', '3M'].includes(period)) {
+               // MMM D
+               return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            }
+
+            if (['6M', '1Y', 'YTD'].includes(period)) {
+               // MMM YYYY
+               return date.toLocaleDateString([], { month: 'short', year: '2-digit' });
+            }
+
+            // > 1Y
+            return date.getFullYear();
+          }
+        }
       },
-      ticks: {
-        color: '#8b949e',
-        maxTicksLimit: 8,
-        maxRotation: 0,
-        autoSkip: true,
-        callback: function(val, index) {
-          const label = this.getLabelForValue(val);
-          if (!label) return '';
-          
-          if (isMetricMode.value) {
-            return label; // Show period directly
+      y: {
+        type: 'linear',
+        display: true,
+        position: 'left',
+        grid: { color: '#30363d' },
+        ticks: { 
+          color: '#8b949e',
+          callback: function(value) {
+              // Check for large numbers and format
+              if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + 'B';
+              if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(1) + 'M';
+              if (Math.abs(value) >= 1e3) return (value / 1e3).toFixed(1) + 'K';
+              return value;
           }
-
-          const date = new Date(label);
-          const period = selectedPeriod.value;
-
-          if (period === '1D') {
-            // HH:MM
-            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          }
-          
-          if (['1W', '1M', '3M'].includes(period)) {
-             // MMM D
-             return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-          }
-
-          if (['6M', '1Y', 'YTD'].includes(period)) {
-             // MMM YYYY
-             return date.toLocaleDateString([], { month: 'short', year: '2-digit' });
-          }
-
-          // > 1Y
-          return date.getFullYear();
         }
-      }
-    },
-    y: {
-      type: 'linear',
-      display: true,
-      position: 'left',
-      grid: { color: '#30363d' },
-      ticks: { 
-        color: '#8b949e',
-        callback: function(value) {
-            // Check for large numbers and format
-            if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + 'B';
-            if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(1) + 'M';
-            if (Math.abs(value) >= 1e3) return (value / 1e3).toFixed(1) + 'K';
-            return value;
-        }
-      }
-    },
+      },
 
-  }
-}));
+    }
+  }));
 
-// CSS-based Slider visual properties
-const sliderLeft = computed(() => {
-  if (totalPoints.value === 0) return 0;
-  return (Math.min(rangeStart.value, rangeEnd.value) / totalPoints.value) * 100;
-});
+  // CSS-based Slider visual properties
+  const sliderLeft = computed(() => {
+    if (totalPoints.value === 0) return 0;
+    return (Math.min(rangeStart.value, rangeEnd.value) / totalPoints.value) * 100;
+  });
 
-const sliderWidth = computed(() => {
-  if (totalPoints.value === 0) return 100;
-  const start = Math.min(rangeStart.value, rangeEnd.value);
-  const end = Math.max(rangeStart.value, rangeEnd.value);
-  return ((end - start) / totalPoints.value) * 100;
-});
+  const sliderWidth = computed(() => {
+    if (totalPoints.value === 0) return 100;
+    const start = Math.min(rangeStart.value, rangeEnd.value);
+    const end = Math.max(rangeStart.value, rangeEnd.value);
+    return ((end - start) / totalPoints.value) * 100;
+  });
 
-const sliderMarkers = computed(() => {
-  const source = isMetricMode.value ? props.metricData : fullHistoricalData.value;
-  if (!source || source.length === 0) return [];
-  
-  const markers = [];
-  const count = 6; // Number of markers
-  const step = Math.floor(totalPoints.value / (count - 1));
-  
-  for (let i = 0; i < count; i++) {
-    const idx = Math.min(i * step, totalPoints.value - 1);
-    const item = source[idx];
+  const sliderMarkers = computed(() => {
+    const source = isMetricMode.value ? props.metricData : fullHistoricalData.value;
+    if (!source || source.length === 0) return [];
     
-    if (item) {
-      let label = '';
-      if (isMetricMode.value && item.period) {
-        // period is "YYYY QX"
-        label = item.period.split(' ')[0];
-      } else if (item.date) {
-        label = new Date(item.date).getFullYear();
+    const markers = [];
+    const count = 6; // Number of markers
+    const step = Math.floor(totalPoints.value / (count - 1));
+    
+    for (let i = 0; i < count; i++) {
+      const idx = Math.min(i * step, totalPoints.value - 1);
+      const item = source[idx];
+      
+      if (item) {
+        let label = '';
+        if (isMetricMode.value && item.period) {
+          // period is "YYYY QX"
+          label = item.period.split(' ')[0];
+        } else if (item.date) {
+          label = new Date(item.date).getFullYear();
+        }
+        
+        markers.push({
+          left: (idx / totalPoints.value) * 100,
+          label: label
+        });
       }
-      
-      markers.push({
-        left: (idx / totalPoints.value) * 100,
-        label: label
-      });
     }
-  }
-  return markers;
-});
+    return markers;
+  });
 
-
-const onSliderInput = (handle) => {
-  // Logic to prevent crossing can go here if strictly needed, 
-  // but Math.min/max in slice handles it nicely.
-  // We might want to switch period to 'Custom' if user drags?
-  // User didn't strictly ask for 'Custom' button, but implicit behavior.
-  // For now, let's keep the period active or just visual.
-};
-
-const selectPeriod = async (period) => {
-  selectedPeriod.value = period;
   
-  if (period === '1D') {
-    await fetchIntraday();
-    return; // Slider disabled for 1D
-  }
+  const onSliderInput = (handle) => {
+    // Logic to prevent crossing can go here if strictly needed, 
+    // but Math.min/max in slice handles it nicely.
+    // We might want to switch period to 'Custom' if user drags?
+    // User didn't strictly ask for 'Custom' button, but implicit behavior.
+    // For now, let's keep the period active or just visual.
+  };
 
-  // Set slider range based on period logic
-  const len = fullHistoricalData.value.length;
-  if (len === 0) return;
-
-  totalPoints.value = len;
-  rangeEnd.value = len - 1;
-
-  const now = new Date();
-  let pastDate = new Date();
-
-  switch (period) {
-    case '1W': pastDate.setDate(now.getDate() - 7); break;
-    case '1M': pastDate.setMonth(now.getMonth() - 1); break;
-    case '3M': pastDate.setMonth(now.getMonth() - 3); break;
-    case '6M': pastDate.setMonth(now.getMonth() - 6); break;
-    case '1Y': pastDate.setFullYear(now.getFullYear() - 1); break;
-    case '3Y': pastDate.setFullYear(now.getFullYear() - 3); break;
-    case '5Y': pastDate.setFullYear(now.getFullYear() - 5); break;
-    case 'Max': pastDate = new Date(0); break; // Very old date
-  }
-
-  // Find index closest to pastDate
-  // Data is Oldest -> Newest.
-  // We want to find the first index where data.date >= pastDate
-  const cutoff = pastDate.toISOString().split('T')[0];
-  const idx = fullHistoricalData.value.findIndex(d => d.date >= cutoff);
-  
-  rangeStart.value = idx >= 0 ? idx : 0;
-};
-
-const fetchHistory = async () => {
-  loading.value = true;
-  error.value = null;
-  try {
-    const data = await fmpService.getHistoricalPrice(props.symbol);
-    if (data.historical) {
-      // API returns Newest -> Oldest. Reverse it.
-      fullHistoricalData.value = [...data.historical].reverse();
-      totalPoints.value = fullHistoricalData.value.length;
-      
-      // Initial set to 1Y
-      selectPeriod('1Y');
-    } else {
-      error.value = 'No historical data found';
+  const selectPeriod = async (period) => {
+    selectedPeriod.value = period;
+    
+    if (period === '1D') {
+      await fetchIntraday();
+      return; // Slider disabled for 1D
     }
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    loading.value = false;
-  }
-};
 
-const fetchIntraday = async () => {
-  loading.value = true;
-  try {
-    const data = await fmpService.getIntraday(props.symbol);
-    // data is array of { date: "YYYY-MM-DD HH:mm:ss", close: ... }
-    // Usually Newest -> Oldest
-    if (Array.isArray(data)) {
-      intradayData.value = [...data].reverse();
-    } else {
-      intradayData.value = [];
+    // Set slider range based on period logic
+    const len = fullHistoricalData.value.length;
+    if (len === 0) return;
+
+    totalPoints.value = len;
+    rangeEnd.value = len - 1;
+
+    // Use the latest data point instead of strictly 'now'
+    // This handles weekends/holidays better
+    const latestItem = fullHistoricalData.value[len - 1]; // Newest
+    const latestDate = new Date(latestItem.date);
+    
+    let pastDate = new Date(latestDate);
+
+    switch (period) {
+      case '1W': pastDate.setDate(latestDate.getDate() - 7); break;
+      case '1M': pastDate.setMonth(latestDate.getMonth() - 1); break;
+      case '3M': pastDate.setMonth(latestDate.getMonth() - 3); break;
+      case '6M': pastDate.setMonth(latestDate.getMonth() - 6); break;
+      case '1Y': pastDate.setFullYear(latestDate.getFullYear() - 1); break;
+      case '3Y': pastDate.setFullYear(latestDate.getFullYear() - 3); break;
+      case '5Y': pastDate.setFullYear(latestDate.getFullYear() - 5); break;
+      case 'Max': pastDate = new Date(0); break; // Very old date
     }
-  } catch (err) {
-    console.error(err);
-    // Fallback? or just show empty
-  } finally {
-    loading.value = false;
-  }
-};
+
+    // Find index closest to pastDate
+    // Data is Oldest -> Newest.
+    // We want to find the first index where data.date >= pastDate
+    const cutoff = pastDate.toISOString().split('T')[0];
+    const idx = fullHistoricalData.value.findIndex(d => d.date >= cutoff);
+    
+    rangeStart.value = idx >= 0 ? idx : 0;
+  };
+
+  const fetchHistory = async () => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const data = await fmpService.getHistoricalPrice(props.symbol);
+      if (data.historical) {
+        // API returns Newest -> Oldest. Reverse it.
+        fullHistoricalData.value = [...data.historical].reverse();
+        totalPoints.value = fullHistoricalData.value.length;
+        
+        // Initial set to 1Y
+        selectPeriod('1Y');
+      } else {
+        error.value = 'No historical data found';
+      }
+    } catch (err) {
+      error.value = err.message;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const fetchIntraday = async () => {
+    loading.value = true;
+    try {
+      const data = await fmpService.getIntraday(props.symbol);
+      // data is array of { date: "YYYY-MM-DD HH:mm:ss", close: ... }
+      // Usually Newest -> Oldest
+      if (Array.isArray(data) && data.length > 0) {
+        // Filter to keep only the latest day
+        const latestDate = data[0].date.split(' ')[0];
+        const oneDayData = data.filter(d => d.date.startsWith(latestDate));
+        
+        intradayData.value = [...oneDayData].reverse();
+      } else {
+        intradayData.value = [];
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback? or just show empty
+    } finally {
+      loading.value = false;
+    }
+  };
 
 onMounted(() => {
   fetchHistory();
